@@ -95,7 +95,14 @@ def get_engine():
 
 
 def paginate_query(query, model, limit, sort_key, marker=None,
-                   sort_dir=None, sort_dirs=None):
+                   offset=None, sort_dir=None, sort_dirs=None):
+    if offset is not None:
+        # If we are doing offset-based pagination, don't set a 
+        # limit or a marker.
+        # FIXME: Eventually the webclient should be smart enough
+        # to do marker-based pagination, at which point this will
+        # be unnecessary.
+        limit, marker = (None, None)
     try:
         return utils_paginate_query(query=query,
                                     model=model,
@@ -187,8 +194,9 @@ def entity_get(kls, entity_id, filter_non_public=False, session=None):
     return entity
 
 
-def entity_get_all(kls, filter_non_public=False, marker=None, limit=None,
-                   sort_field='id', sort_dir='asc', session=None, **kwargs):
+def entity_get_all(kls, filter_non_public=False, marker=None, offset=None,
+                   limit=None, sort_field='id', sort_dir='asc', session=None,
+                   **kwargs):
     # Sanity checks, in case someone accidentally explicitly passes in 'None'
     if not sort_field:
         sort_field = 'id'
@@ -208,6 +216,7 @@ def entity_get_all(kls, filter_non_public=False, marker=None, limit=None,
                                limit=limit,
                                sort_key=sort_field,
                                marker=marker,
+                               offset=offset,
                                sort_dir=sort_dir)
 
         # Execute the query
@@ -219,8 +228,11 @@ def entity_get_all(kls, filter_non_public=False, marker=None, limit=None,
     except db_exc.DBInvalidUnicodeParameter:
         raise exc.DBInvalidUnicodeParameter()
 
+    if offset is not None:
+        entities = entities[offset:offset + limit]
+
     if len(entities) > 0 and filter_non_public:
-        sample_entity = entities[0] if len(entities) > 0 else None
+        sample_entity = entities[0]
         public_fields = getattr(sample_entity, "_public_fields", [])
 
         entities = [_filter_non_public_fields(entity, public_fields)
