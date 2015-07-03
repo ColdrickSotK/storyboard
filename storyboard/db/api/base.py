@@ -102,15 +102,19 @@ def paginate_query(query, model, limit, sort_key, marker=None,
         # FIXME: Eventually the webclient should be smart enough
         # to do marker-based pagination, at which point this will
         # be unnecessary.
+        start, end = (offset, offset + limit)
         limit, marker = (None, None)
     try:
-        return utils_paginate_query(query=query,
-                                    model=model,
-                                    limit=limit,
-                                    sort_keys=[sort_key],
-                                    marker=marker,
-                                    sort_dir=sort_dir,
-                                    sort_dirs=sort_dirs)
+        sorted_query =  utils_paginate_query(query=query,
+                                             model=model,
+                                             limit=limit,
+                                             sort_keys=[sort_key],
+                                             marker=marker,
+                                             sort_dir=sort_dir,
+                                             sort_dirs=sort_dirs)
+        if offset is not None:
+            return sorted_query.slice(start, end)
+        return sorted_query
     except ValueError as ve:
         raise exc.DBValueError(message=str(ve))
     except InvalidSortKey:
@@ -227,9 +231,6 @@ def entity_get_all(kls, filter_non_public=False, marker=None, offset=None,
         raise exc.DBDeadLock()
     except db_exc.DBInvalidUnicodeParameter:
         raise exc.DBInvalidUnicodeParameter()
-
-    if offset is not None:
-        entities = entities[offset:offset + limit]
 
     if len(entities) > 0 and filter_non_public:
         sample_entity = entities[0]

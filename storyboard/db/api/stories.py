@@ -95,8 +95,6 @@ def story_get_all(title=None, description=None, status=None, assignee_id=None,
                                     sort_dir=sort_dir)
 
     raw_stories = query.all()
-    if offset is not None and not marker:
-        raw_stories = raw_stories[offset:offset + limit]
     stories = map(summarize_task_statuses, raw_stories)
     return stories
 

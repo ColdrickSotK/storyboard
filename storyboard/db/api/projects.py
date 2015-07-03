@@ -50,8 +50,6 @@ def project_get_all(marker=None, offset=None, limit=None, sort_field=None,
 
     # Execute the query
     projects = query.all()
-    if offset is not None:
-        projects = projects[offset:offset + limit]
     return projects
 
 
