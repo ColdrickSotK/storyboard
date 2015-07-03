@@ -85,7 +85,7 @@ class StoriesController(rest.RestController):
         :param project_id: Filter stories by project ID.
         :param tags: A list of tags to filter by.
         :param marker: The resource id where the page should begin.
-        :param offset: The offset to get the page at.
+        :param offset: The offset to start the page at.
         :param limit: The number of stories to retrieve.
         :param tags_filter_type: Type of tags filter.
         :param sort_field: The name of the field to sort on.
