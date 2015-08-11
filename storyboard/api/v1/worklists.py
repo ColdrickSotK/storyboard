@@ -59,6 +59,8 @@ class ItemsSubcontroller(rest.RestController):
         if worklist.items is None:
             return []
 
+        worklist.items.sort(key=lambda i: i.list_position)
+
         return [wmodels.WorklistItem.from_db_model(item)
                 for item in worklist.items]
 
@@ -83,7 +85,7 @@ class ItemsSubcontroller(rest.RestController):
     @decorators.db_exceptions
     @secure(checks.authenticated)
     @wsme_pecan.wsexpose(wmodels.WorklistItem, int, int, int)
-    def put(self, worklist_id, item_id, list_position):
+    def put(self, id, item_id, list_position):
         """Move a worklist item to a new position in the worklist.
 
         :param worklist_id: The ID of the worklist.
@@ -91,15 +93,15 @@ class ItemsSubcontroller(rest.RestController):
 
         """
         # TODO(SotK): Check ACL
-        worklists_api.move_item(worklist_id, item_id, list_position)
+        worklists_api.move_item(id, item_id, list_position)
 
         return wmodels.WorklistItem.from_db_model(
-            worklists_api.get_item_at_position(list_position))
+            worklists_api.get_item_by_id(item_id))
 
     @decorators.db_exceptions
     @secure(checks.authenticated)
     @wsme_pecan.wsexpose(None, int, int, status_code=204)
-    def delete(self, worklist_id, item_id):
+    def delete(self, id, item_id):
         """Remove an item from a worklist.
 
         :param worklist_id: The ID of the worklist.
@@ -107,7 +109,7 @@ class ItemsSubcontroller(rest.RestController):
 
         """
         # TODO(SotK): Check ACL
-        worklists_api.remove_item(worklist_id, item_id)
+        worklists_api.remove_item(id, item_id)
 
 
 class WorklistsController(rest.RestController):

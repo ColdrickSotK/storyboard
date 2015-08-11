@@ -99,7 +99,7 @@ def add_item(worklist_id, item_id, item_type, list_position):
 
 def get_item_by_id(item_id):
     session = api_base.get_session()
-    query = session.query(models.WorklistItem).filter_by(id=id)
+    query = session.query(models.WorklistItem).filter_by(id=str(item_id))
 
     return query.first()
 
@@ -114,7 +114,10 @@ def get_item_at_position(worklist_id, list_position):
 
 def move_item(worklist_id, item_id, list_position):
     # TODO(SotK): Implement moving of WorklistItems.
-    pass
+    session = api_base.get_session()
+    item = get_item_by_id(item_id)
+    item.list_position = list_position
+    session.add(item)
 
 
 def remove_item(worklist_id, item_id):
