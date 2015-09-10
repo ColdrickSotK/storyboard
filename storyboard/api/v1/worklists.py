@@ -153,9 +153,10 @@ class WorklistsController(rest.RestController):
     @decorators.db_exceptions
     @secure(checks.guest)
     @wsme_pecan.wsexpose([wmodels.Worklist], wtypes.text, int, int,
-                         bool, wtypes.text, wtypes.text)
+                         bool, wtypes.text, wtypes.text, int)
     def get_all(self, title=None, creator_id=None, project_id=None,
-                archived=False, sort_field='id', sort_dir='asc'):
+                archived=False, sort_field='id', sort_dir='asc',
+                board_id=None):
         """Retrieve definitions of all of the worklists.
 
         :param title: A string to filter the title by.
@@ -164,12 +165,15 @@ class WorklistsController(rest.RestController):
         :param archived: Filter worklists by whether they are archived or not.
         :param sort_field: The name of the field to sort on.
         :param sort_dir: Sort direction for results (asc, desc).
+        :param board_id: Get all worklists in the board with this id. Other
+        filters are not applied.
 
         """
         worklists = worklists_api.get_all(title=title,
                                           creator_id=creator_id,
                                           project_id=project_id,
                                           archived=archived,
+                                          board_id=board_id,
                                           sort_field=sort_field,
                                           sort_dir=sort_dir)
 
