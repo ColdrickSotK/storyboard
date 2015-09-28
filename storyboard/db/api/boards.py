@@ -25,12 +25,8 @@ from storyboard.openstack.common.gettextutils import _  # noqa
 def _board_get(id, session=None):
     if not session:
         session = api_base.get_session()
-    query = session.query(models.Board)
-    try:
-        query.options(subqueryload(models.Board.lanes))
-    except Exception:
-        pass
-    query.filter_by(id=id)
+    query = session.query(models.Board).options(
+        subqueryload(models.Board.lanes)).filter_by(id=id)
 
     return query.first()
 

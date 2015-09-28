@@ -15,6 +15,7 @@
 
 from oslo_config import cfg
 from pecan import abort
+from pecan import expose
 from pecan import request
 from pecan import response
 from pecan import rest
@@ -41,7 +42,6 @@ def visible(board, user=None):
         # TODO(SotK): Permissions
         return user == board.creator_id
     return not board.private
-    return True
 
 
 def editable(board, user=None):
@@ -51,7 +51,6 @@ def editable(board, user=None):
         return False
     # TODO(SotK): Permissions
     return user == board.creator_id
-    return True
 
 
 def get_lane(list_id, board):
@@ -61,6 +60,8 @@ def get_lane(list_id, board):
 
 
 def update_lanes(board_dict, board_id):
+    if 'lanes' not in board_dict:
+        return
     board = boards_api.get(board_id)
     new_list_ids = [lane.list_id for lane in board_dict['lanes']]
     existing_list_ids = [lane.list_id for lane in board.lanes]
@@ -68,10 +69,11 @@ def update_lanes(board_dict, board_id):
         if lane.list_id in new_list_ids:
             new_lane = get_lane(lane.list_id, board_dict)
             if lane.position != new_lane.position:
-                boards_api.update_lane(board_id, lane, new_lane.as_dict())
+                boards_api.update_lane(
+                    board_id, lane, new_lane.as_dict(omit_unset=True))
     for lane in board_dict['lanes']:
         if lane.list_id not in existing_list_ids:
-            boards_api.add_lane(board_id, lane)
+            boards_api.add_lane(board_id, lane.as_dict(omit_unset=True))
 
     board = boards_api.get(board_id)
     del board_dict['lanes']
@@ -119,13 +121,17 @@ class BoardsController(rest.RestController):
         boards = boards_api.get_all(title=title,
                                     creator_id=creator_id,
                                     project_id=project_id,
-                                    archived=archived,
                                     sort_field=sort_field,
                                     sort_dir=sort_dir)
 
+        visible_boards = []
         user_id = request.current_user_id
-        visible_boards = [wmodels.Board.from_db_model(b) for b in boards
-                          if b.archived == archived and visible(b, user_id)]
+        for board in boards:
+            if visible(board, user_id) and board.archived == archived:
+                board_model = wmodels.Board.from_db_model(board)
+                board_model.lanes = [wmodels.Lane.from_db_model(lane)
+                                     for lane in board.lanes]
+                visible_boards.append(board_model)
 
         # Apply the query response headers
         response.headers['X-Total'] = str(len(visible_boards))
@@ -169,12 +175,19 @@ class BoardsController(rest.RestController):
         if not editable(boards_api.get(id), user_id):
             raise exc.NotFound(_("Board %s not found") % id)
 
-        board_dict = board.as_dict()
+        board_dict = board.as_dict(omit_unset=True)
         update_lanes(board_dict, id)
 
         updated_board = boards_api.update(id, board_dict)
 
-        return wmodels.Board.from_db_model(updated_board)
+        if visible(board, user_id):
+            board_model = wmodels.Board.from_db_model(board)
+            if board.lanes:
+                board_model.lanes = [wmodels.Lane.from_db_model(lane)
+                                     for lane in board.lanes]
+            return board_model
+        else:
+            raise exc.NotFound(_("Board %s not found") % id)
 
     @decorators.db_exceptions
     @secure(checks.authenticated)
@@ -190,13 +203,43 @@ class BoardsController(rest.RestController):
         if not editable(board, user_id):
             raise exc.NotFound(_("Board %s not found") % id)
 
-        board_dict = wmodels.Board.from_db_model(board).as_dict()
+        board_dict = wmodels.Board.from_db_model(board).as_dict(
+            omit_unset=True)
         board_dict['lanes'] = board.lanes
         board_dict.update({"archived": True})
         boards_api.update(id, board_dict)
 
         for lane in board_dict['lanes']:
             worklist = lane.worklist
-            worklist_dict = wmodels.Worklist.from_db_model(worklist).as_dict()
+            worklist_dict = wmodels.Worklist.from_db_model(worklist).as_dict(
+                omit_unset=True)
             worklist_dict.update({'archived': True})
             worklists_api.update(worklist.id, worklist_dict)
+
+    @decorators.db_exceptions
+    @secure(checks.guest)
+    @wsme_pecan.wsexpose(wtypes.DictType(str, bool), int)
+    def permissions(self, id):
+        """Get the permissions the current user has for the board.
+
+        :param id: The ID of the board to check permissions for.
+
+        """
+        board = boards_api.get(id)
+        user_id = request.current_user_id
+        print board.id, user_id
+        return {
+            'edit_board': editable(board, user_id),
+            'move_cards': editable(board, user_id) # TODO(SotK): check lanes
+        }
+
+    @expose()
+    def _route(self, args, request):
+        if request.method == 'GET' and len(args) > 1:
+            print args[1] == "permissions"
+            if args[1] == "permissions":
+                # Request to a permissions endpoint
+                print args
+                return self.permissions, [args[0]]
+
+        return super(BoardsController, self)._route(args, request)

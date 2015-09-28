@@ -160,3 +160,11 @@ def remove_item(worklist_id, item_id):
         session.delete(item)
 
     return worklist
+
+
+def is_lane(worklist):
+    lanes = api_base.entity_get_all(models.BoardWorklist,
+                                    list_id=worklist.id)
+    if lanes:
+        return True
+    return False
