@@ -43,8 +43,10 @@ def visible(worklist, user=None, hide_lanes=False):
     if worklists_api.is_lane(worklist):
         board = boards_api.get_from_lane(worklist)
         permissions = boards_api.get_permissions(board.id, user)
-        return any(name in permissions
-                   for name in ['edit_board', 'move_cards'])
+        if board.private:
+            return any(name in permissions
+                       for name in ['edit_board', 'move_cards'])
+        return not board.private
     if user and worklist.private:
         permissions = worklists_api.get_permissions(worklist.id, user)
         return any(name in permissions
