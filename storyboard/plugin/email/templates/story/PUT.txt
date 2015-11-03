@@ -1,6 +1,6 @@
 Story "{{resource.title}}" was updated by {{author.full_name}}:
 
-{% for key, value in before.iteritems() %}
+{% for key, value in before.items() %}
 Property: {{key}}
 From:
 {{value}}
