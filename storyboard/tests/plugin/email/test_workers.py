@@ -165,7 +165,7 @@ class TestSubscriptionEmailWorker(base.FunctionalTest):
 
             subscribed_user = db_api_base.entity_get(models.User, 3,
                                                      session=session)
-            # TODO(SotK): Assert that sendmail is only called once.
+            self.assertEqual(dummy_smtp.return_value.sendmail.call_count, 1)
             self.assertEqual(
                 dummy_smtp.return_value.sendmail.call_args[1]['to_addrs'],
                 subscribed_user.email)
