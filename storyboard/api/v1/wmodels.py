@@ -583,6 +583,46 @@ class Lane(base.APIBase):
                                    for item in lane.worklist.items]
 
 
+class DueDate(base.APIBase):
+    """Represents a due date for tasks/stories."""
+
+    name = wtypes.text
+    """The name of the due date."""
+
+    date = datetime
+    """The date of the due date"""
+
+    private = bool
+    """A flag to identify whether this is a private or public due date."""
+
+    tasks = wtypes.ArrayType(Task)
+    """A list containing all the tasks with this due date."""
+
+    stories = wtypes.ArrayType(Story)
+    """A list containing all the stories with this due date."""
+
+    count = int
+    """The number of tasks and stories with this dues date."""
+
+    owners = wtypes.ArrayType(int)
+    """A list of the IDs of the users who can change this date."""
+
+    users = wtypes.ArrayType(int)
+    """A list of the IDs of the users who can assign this date to tasks."""
+
+    def resolve_items(self, due_date):
+        """Resolve the various lists for the due date."""
+        self.tasks = [Task.from_db_model(task) for task in due_date.tasks]
+        self.stories = [Story.from_db_model(story)
+                        for story in due_date.stories]
+        self.count = len(self.tasks) + len(self.stories)
+
+    def resolve_permissions(self, due_dates):
+        """Resolve the permissions groups of the due date."""
+        self.owners = due_dates_api.get_owners(due_date)
+        self.users = due_dates_api.get_users(due_date)
+
+
 class Board(base.APIBase):
     """Represents a kanban board made up of worklists."""
 
@@ -610,6 +650,9 @@ class Board(base.APIBase):
     lanes = wtypes.ArrayType(Lane)
     """A list containing the representions of the lanes in this board."""
 
+    due_dates = wtypes.ArrayType(DueDate)
+    """A list containing the due dates used in this board."""
+
     owners = wtypes.ArrayType(int)
     """A list of the IDs of the users who have full permissions."""
 
@@ -624,6 +667,13 @@ class Board(base.APIBase):
             lane_model.resolve_list(lane, resolve_items)
             self.lanes.append(lane_model)
         self.lanes.sort(key=lambda x: x.position)
+
+    def resolve_due_dates(self, board):
+        self.due_dates = []
+        for due_date in board.due_dates:
+            due_date_model = DueDate.from_db_model(due_date)
+            due_date_model.resolve_items(due_date)
+            self.due_dates.append(due_date_model)
 
     def resolve_permissions(self, board):
         """Resolve the permissions groups of the board."""

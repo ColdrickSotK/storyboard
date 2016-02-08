@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime
+
 from oslo_config import cfg
 from pecan import abort
 from pecan import request
@@ -118,7 +120,7 @@ class DueDatesController(rest.RestController):
 
     @decorators.db_exceptions
     @secure(checks.guest)
-    @wsme_pecan.wsexpose([wmodels.DueDate], wtypes.text, wtypes.datetime,
+    @wsme_pecan.wsexpose([wmodels.DueDate], wtypes.text, datetime,
                          wtypes.text, wtypes.text)
     def get_all(self, name=None, date=None, sort_field='id', sort_dir='asc'):
         """Retrieve details about all the due dates.
@@ -149,7 +151,7 @@ class DueDatesController(rest.RestController):
     @secure(checks.authenticated)
     @wsme_pecan.wsexpose(wmodels.DueDate, body=wmodels.DueDate)
     def post(self, due_date):
-        "Create a new due date.
+        """Create a new due date.
 
         :param due_date: A due date within the request body.
 
@@ -160,4 +162,52 @@ class DueDatesController(rest.RestController):
         if duedate.creator_id and due_date.creator_id != user_id:
             abort(400, _("You can't select the creator of a due date."))
         due_date_dict.update({'creator_id': user_id})
+        owners = due_date_dict.pop('owners')
+        viewers = due_date_dict.pop('viewers')
+        if not owners:
+            owners = [user_id]
+        if not viewers:
+            viewers = []
 
+        created_due_date = due_dates_api.create(due_date_dict)
+
+        edit_permission = {
+            'name': 'edit_due_date_%d' % created_due_date.id,
+            'codename': 'edit_date',
+            'users': owners
+        }
+        view_permission = {
+            'name': 'view_due_date_%d' % created_due_date.id,
+            'codename': 'view_date',
+            'users': viewers
+        }
+        due_dates_api.create_permission(created_due_date.id, edit_permission)
+        due_dates_api.create_permission(created_due_date.id, view_permission)
+
+        return wmodels.DueDate.from_db_model(created_due_date)
+
+    @decorators.db_exceptions
+    @secure(checks.authenticated)
+    @wsme_pecan.wsexpose(wmodels.DueDate, int, body=wmodels.DueDate)
+    def put(self, id, due_date):
+        """Modify a due date.
+
+        :param id: The ID of the due date to edit.
+        :param due_date: The new due date within the request body.
+
+        """
+        if not editable(due_dates_api.get(id), request.current_user_id):
+            raise exc.NotFound(_("Due date %s not found") % id)
+
+        due_date_dict = due_date.as_dict(omit_unset=True)
+        updated_due_date = due_dates_api.update(id, due_date_dict)
+
+        if visible(updated_due_date, request.current_user_id):
+            due_date_model = wmodels.DueDate.from_db_model(updated_due_date)
+            due_date_model.resolve_items(updated_due_date)
+            due_date_model.resolve_permissions(updated_due_date)
+            return due_date_model
+        else:
+            raise exc.NotFound(_("Due date %s not found") % id)
+
+    permissions = PermissionsController()
