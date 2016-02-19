@@ -28,28 +28,13 @@ from storyboard.api.auth import authorization_checks as checks
 from storyboard.api.v1 import wmodels
 from storyboard.common import decorators
 from storyboard.common import exception as exc
+from storyboard.db.api import boards as boards_api
 from storyboard.db.api import due_dates as due_dates_api
+from storyboard.db.api import tasks as tasks_api
 from storyboard.openstack.common.gettextutils import _  # noqa
 
 
 CONF = cfg.CONF
-
-
-def visible(due_date, user=None):
-    if not due_date:
-        return False
-    if user and due_date.private:
-        permissions = due_dates_api.get_permissions(due_date, user)
-        return any(name in permissions for name in ['edit_date', 'view_date'])
-    return not due_date.private
-
-
-def editable(due_date, user=None):
-    if not due_date:
-        return False
-    if not user:
-        return False
-    return 'edit_date' in due_dates_api.get_permissions(due_date, user)
 
 
 class PermissionsController(rest.RestController):
@@ -65,8 +50,11 @@ class PermissionsController(rest.RestController):
 
         """
         due_date = due_dates_api.get(due_date_id)
-        return due_dates_api.get_permissions(due_date,
-                                             request.current_user_id)
+        if due_dates_api.visible(due_date, request.current_user_id):
+            return due_dates_api.get_permissions(due_date,
+                                                 request.current_user_id)
+        else:
+            raise exc.NotFound(_("Due date %s not found") % due_date_id)
 
     @decorators.db_exceptions
     @secure(checks.authenticated)
@@ -79,7 +67,11 @@ class PermissionsController(rest.RestController):
         :param permission: The dict used to create the permission.
 
         """
-        return due_dates_api.create_permission(due_date_id, permission)
+        if due_dates_api.editable(due_dates_api.get(due_date_id),
+                                  request.current_user_id):
+            return due_dates_api.create_permission(due_date_id, permission)
+        else:
+            raise exc.NotFound(_("Due date %s not found") % due_date_id)
 
     @decorators.db_exceptions
     @secure(checks.authenticated)
@@ -92,8 +84,12 @@ class PermissionsController(rest.RestController):
         :param permission: The new contents of the permission.
 
         """
-        return due_dates_api.update_permission(
-            due_date_id, permission).codename
+        if due_dates_api.editable(due_dates_api.get(due_date_id),
+                                  request.current_user_id):
+            return due_dates_api.update_permission(
+                due_date_id, permission).codename
+        else:
+            raise exc.NotFound(_("Due date %s not found") % due_date_id)
 
 
 class DueDatesController(rest.RestController):
@@ -110,7 +106,7 @@ class DueDatesController(rest.RestController):
         """
         due_date = due_dates_api.get(id)
 
-        if visible(due_date, request.current_user_id):
+        if due_dates_api.visible(due_date, request.current_user_id):
             due_date_model = wmodels.DueDate.from_db_model(due_date)
             due_date_model.resolve_items(due_date)
             due_date_model.resolve_permissions(due_date)
@@ -120,24 +116,31 @@ class DueDatesController(rest.RestController):
 
     @decorators.db_exceptions
     @secure(checks.guest)
-    @wsme_pecan.wsexpose([wmodels.DueDate], wtypes.text, datetime,
-                         wtypes.text, wtypes.text)
-    def get_all(self, name=None, date=None, sort_field='id', sort_dir='asc'):
+    @wsme_pecan.wsexpose([wmodels.DueDate], wtypes.text, datetime, int, int,
+                         int, int, wtypes.text, wtypes.text)
+    def get_all(self, name=None, date=None, board_id=None, worklist_id=None,
+                user=None, owner=None, sort_field='id', sort_dir='asc'):
         """Retrieve details about all the due dates.
 
         :param name: The name of the due date.
         :param date: The date of the due date.
+        :param board_id: The ID of a board to filter by.
+        :param worklist_id: The ID of a worklist to filter by.
         :param sort_field: The name of the field to sort on.
         :param sort_dir: Sort direction for results (asc, desc).
 
         """
         due_dates = due_dates_api.get_all(name=name,
                                           date=date,
+                                          board_id=board_id,
+                                          worklist_id=worklist_id,
+                                          user=user,
+                                          owner=owner,
                                           sort_field=sort_field,
                                           sort_dir=sort_dir)
         visible_dates = []
         for due_date in due_dates:
-            if visible(due_date, request.current_user_id):
+            if due_dates_api.visible(due_date, request.current_user_id):
                 due_date_model = wmodels.DueDate.from_db_model(due_date)
                 due_date_model.resolve_items(due_date)
                 due_date_model.resolve_permissions(due_date)
@@ -159,17 +162,26 @@ class DueDatesController(rest.RestController):
         due_date_dict = due_date.as_dict()
         user_id = request.current_user_id
 
-        if duedate.creator_id and due_date.creator_id != user_id:
+        if hasattr(due_date, 'creator_id') and due_date.creator_id != user_id:
             abort(400, _("You can't select the creator of a due date."))
         due_date_dict.update({'creator_id': user_id})
+
+        board_id = due_date_dict.pop('board_id')
+        worklist_id = due_date_dict.pop('worklist_id')
+        stories = due_date_dict.pop('stories')
+        tasks = due_date_dict.pop('tasks')
         owners = due_date_dict.pop('owners')
-        viewers = due_date_dict.pop('viewers')
+        users = due_date_dict.pop('users')
         if not owners:
             owners = [user_id]
-        if not viewers:
-            viewers = []
+        if not users:
+            users = []
 
         created_due_date = due_dates_api.create(due_date_dict)
+
+        if board_id is not None:
+            date = due_dates_api.get(created_due_date.id)
+            date.boards.append(boards_api.get(board_id))
 
         edit_permission = {
             'name': 'edit_due_date_%d' % created_due_date.id,
@@ -179,7 +191,7 @@ class DueDatesController(rest.RestController):
         view_permission = {
             'name': 'view_due_date_%d' % created_due_date.id,
             'codename': 'view_date',
-            'users': viewers
+            'users': users
         }
         due_dates_api.create_permission(created_due_date.id, edit_permission)
         due_dates_api.create_permission(created_due_date.id, view_permission)
@@ -196,18 +208,40 @@ class DueDatesController(rest.RestController):
         :param due_date: The new due date within the request body.
 
         """
-        if not editable(due_dates_api.get(id), request.current_user_id):
+        if not due_dates_api.editable(due_dates_api.get(id),
+                                      request.current_user_id):
             raise exc.NotFound(_("Due date %s not found") % id)
 
         due_date_dict = due_date.as_dict(omit_unset=True)
+        tasks = due_date_dict.pop('tasks')
+        db_tasks = []
+        for task in tasks:
+            db_tasks.append(tasks_api.task_get(task.id))
+        due_date_dict['tasks'] = db_tasks
+
         updated_due_date = due_dates_api.update(id, due_date_dict)
 
-        if visible(updated_due_date, request.current_user_id):
+        if due_dates_api.visible(updated_due_date, request.current_user_id):
             due_date_model = wmodels.DueDate.from_db_model(updated_due_date)
             due_date_model.resolve_items(updated_due_date)
             due_date_model.resolve_permissions(updated_due_date)
             return due_date_model
         else:
             raise exc.NotFound(_("Due date %s not found") % id)
+
+    @decorators.db_exceptions
+    @secure(checks.authenticated)
+    @wsme_pecan.wsexpose(None, int, int)
+    def delete(self, id, board_id):
+        due_date = due_dates_api.get(id)
+        if not due_dates_api.editable(due_date, request.current_user_id):
+            raise exc.NotFound(_("Due date %s not found") % id)
+
+        board = boards_api.get(board_id)
+        if not boards_api.editable(board, request.current_user_id):
+            raise exc.NotFound(_("Board %s not found") % board_id)
+
+        if board in due_date.boards:
+            due_date.boards.remove(board)
 
     permissions = PermissionsController()

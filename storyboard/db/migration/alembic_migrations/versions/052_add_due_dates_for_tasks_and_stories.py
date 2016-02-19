@@ -76,9 +76,13 @@ def upgrade(active_plugins=None, options=None):
         sa.ForeignKeyConstraint(['due_date_id'], ['due_dates.id'], ),
         sa.ForeignKeyConstraint(['task_id'], ['tasks.id'], )
     )
+    op.add_column('worklist_items', sa.Column('display_due_date', sa.Integer(), nullable=True))
+    op.create_foreign_key(None, 'worklist_items', 'due_dates', ['display_due_date'], ['id'])
 
 
 def downgrade(active_plugins=None, options=None):
+    op.drop_constraint(None, 'worklist_items', type_='foreignkey')
+    op.drop_column('worklist_items', 'display_due_date')
     op.drop_table('task_due_dates')
     op.drop_table('worklist_due_dates')
     op.drop_table('board_due_dates')
