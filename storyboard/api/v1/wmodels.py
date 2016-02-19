@@ -23,6 +23,7 @@ from storyboard.common import event_resolvers
 from storyboard.common import event_types
 from storyboard.db.api import boards as boards_api
 from storyboard.db.api import comments as comments_api
+from storyboard.db.api import due_dates as due_dates_api
 from storyboard.db.api import stories as stories_api
 from storyboard.db.api import tasks as tasks_api
 from storyboard.db.api import worklists as worklists_api
@@ -151,6 +152,8 @@ class Story(base.APIBase):
     tags = wtypes.ArrayType(wtypes.text)
     """Tag list assigned to this story."""
 
+    due_dates = wtypes.ArrayType(int)
+
     @classmethod
     def sample(cls):
         return cls(
@@ -219,6 +222,8 @@ class Task(base.APIBase):
 
     milestone_id = int
     """The ID of corresponding Milestone"""
+
+    due_dates = wtypes.ArrayType(int)
 
 
 class Branch(base.APIBase):
@@ -460,6 +465,50 @@ class TaskStatus(base.APIBase):
     name = wtypes.text
 
 
+class DueDate(base.APIBase):
+    """Represents a due date for tasks/stories."""
+
+    name = wtypes.text
+    """The name of the due date."""
+
+    date = datetime
+    """The date of the due date"""
+
+    private = bool
+    """A flag to identify whether this is a private or public due date."""
+
+    tasks = wtypes.ArrayType(Task)
+    """A list containing all the tasks with this due date."""
+
+    stories = wtypes.ArrayType(Story)
+    """A list containing all the stories with this due date."""
+
+    count = int
+    """The number of tasks and stories with this dues date."""
+
+    owners = wtypes.ArrayType(int)
+    """A list of the IDs of the users who can change this date."""
+
+    users = wtypes.ArrayType(int)
+    """A list of the IDs of the users who can assign this date to tasks."""
+
+    board_id = int
+
+    worklist_id = int
+
+    def resolve_items(self, due_date):
+        """Resolve the various lists for the due date."""
+        self.tasks = [Task.from_db_model(task) for task in due_date.tasks]
+        self.stories = [Story.from_db_model(story)
+                        for story in due_date.stories]
+        self.count = len(self.tasks) + len(self.stories)
+
+    def resolve_permissions(self, due_date):
+        """Resolve the permissions groups of the due date."""
+        self.owners = due_dates_api.get_owners(due_date)
+        self.users = due_dates_api.get_users(due_date)
+
+
 # NOTE(SotK): Criteria/Criterion is used as the existing code in the webclient
 #             refers to such filters as Criteria.
 class WorklistCriterion(base.APIBase):
@@ -496,8 +545,21 @@ class WorklistItem(base.APIBase):
     list_position = int
     """The position of this item in the Worklist."""
 
+    display_due_date = int
+    """The ID of the due date displayed on this item."""
+
+    resolved_due_date = DueDate
+    """The due date displayed on this item."""
+
     task = Task
     story = Story
+
+    def resolve_due_date(self, worklist_item):
+        due_date = due_dates_api.get(worklist_item.display_due_date)
+        resolved = None
+        if due_date:
+            resolved = DueDate.from_db_model(due_date)
+        self.resolved_due_date = resolved
 
 
 class Worklist(base.APIBase):
@@ -549,6 +611,9 @@ class Worklist(base.APIBase):
                 if task is None or task.story is None:
                     continue
                 item_model.task = Task.from_db_model(task)
+                item_model.task.due_dates = [date.id
+                                             for date in task.due_dates]
+            item_model.resolve_due_date(item)
             self.items.append(item_model)
         self.items.sort(key=lambda x: x.list_position)
 
@@ -581,46 +646,6 @@ class Lane(base.APIBase):
         else:
             self.worklist.items = [WorklistItem.from_db_model(item)
                                    for item in lane.worklist.items]
-
-
-class DueDate(base.APIBase):
-    """Represents a due date for tasks/stories."""
-
-    name = wtypes.text
-    """The name of the due date."""
-
-    date = datetime
-    """The date of the due date"""
-
-    private = bool
-    """A flag to identify whether this is a private or public due date."""
-
-    tasks = wtypes.ArrayType(Task)
-    """A list containing all the tasks with this due date."""
-
-    stories = wtypes.ArrayType(Story)
-    """A list containing all the stories with this due date."""
-
-    count = int
-    """The number of tasks and stories with this dues date."""
-
-    owners = wtypes.ArrayType(int)
-    """A list of the IDs of the users who can change this date."""
-
-    users = wtypes.ArrayType(int)
-    """A list of the IDs of the users who can assign this date to tasks."""
-
-    def resolve_items(self, due_date):
-        """Resolve the various lists for the due date."""
-        self.tasks = [Task.from_db_model(task) for task in due_date.tasks]
-        self.stories = [Story.from_db_model(story)
-                        for story in due_date.stories]
-        self.count = len(self.tasks) + len(self.stories)
-
-    def resolve_permissions(self, due_dates):
-        """Resolve the permissions groups of the due date."""
-        self.owners = due_dates_api.get_owners(due_date)
-        self.users = due_dates_api.get_users(due_date)
 
 
 class Board(base.APIBase):

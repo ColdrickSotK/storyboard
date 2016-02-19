@@ -527,6 +527,9 @@ class WorklistItem(ModelBuilder, Base):
     list_position = Column(Integer, nullable=False)
     item_type = Column(Enum(*_ITEM_TYPES), nullable=False)
     item_id = Column(Integer, nullable=False)
+    display_due_date = Column(Integer,
+                              ForeignKey('due_dates.id'),
+                              nullable=True)
 
     _public_fields = ["id", "list_id", "list_position", "item_type",
                       "item_id"]

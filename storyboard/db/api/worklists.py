@@ -129,13 +129,16 @@ def get_item_at_position(worklist_id, list_position):
     return query.first()
 
 
-def update_item(worklist_id, item_id, list_position, list_id=None):
+def move_item(worklist_id, item_id, list_position, list_id=None):
     session = api_base.get_session()
 
     with session.begin(subtransactions=True):
         item = get_item_by_id(item_id, session)
         old_pos = item.list_position
         item.list_position = list_position
+
+        if old_pos == list_position:
+            return
 
         old_list = _worklist_get(item.list_id)
 
@@ -171,6 +174,13 @@ def update_item(worklist_id, item_id, list_position, list_id=None):
                     list_item.list_position -= 1
                 elif direction == 'down' and list_item != item:
                     list_item.list_position += 1
+
+
+def update_item(item_id, display_due_date):
+    updated = {
+        'display_due_date': display_due_date
+    }
+    return api_base.entity_update(models.WorklistItem, item_id, updated)
 
 
 def remove_item(worklist_id, item_id):
@@ -250,3 +260,51 @@ def update_permission(worklist_id, permission_dict):
         raise ClientSideError(_("Permission %s does not exist")
                               % permission_dict['codename'])
     return api_base.entity_update(models.Permission, id, permission_dict)
+
+
+def visible(worklist, user=None, hide_lanes=False):
+    if hide_lanes:
+        if is_lane(worklist):
+            return False
+    if not worklist:
+        return False
+    if is_lane(worklist):
+        board = boards.get_from_lane(worklist)
+        permissions = boards.get_permissions(board, user)
+        if board.private:
+            return any(name in permissions
+                       for name in ['edit_board', 'move_cards'])
+        return not board.private
+    if user and worklist.private:
+        permissions = get_permissions(worklist, user)
+        return any(name in permissions
+                   for name in ['edit_worklist', 'move_items'])
+    return not worklist.private
+
+
+def editable(worklist, user=None):
+    if not worklist:
+        return False
+    if not user:
+        return False
+    if is_lane(worklist):
+        board = boards.get_from_lane(worklist)
+        permissions = boards.get_permissions(board, user)
+        return any(name in permissions
+                   for name in ['edit_board', 'move_cards'])
+    return 'edit_worklist' in get_permissions(worklist, user)
+
+
+def editable_contents(worklist, user=None):
+    if not worklist:
+        return False
+    if not user:
+        return False
+    if is_lane(worklist):
+        board = boards.get_from_lane(worklist)
+        permissions = boards.get_permissions(board, user)
+        return any(name in permissions
+                   for name in ['edit_board', 'move_cards'])
+    permissions = get_permissions(worklist, user)
+    return any(name in permissions
+               for name in ['edit_worklist', 'move_items'])

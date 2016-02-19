@@ -34,24 +34,6 @@ from storyboard.openstack.common.gettextutils import _  # noqa
 CONF = cfg.CONF
 
 
-def visible(board, user=None):
-    if not board:
-        return False
-    if user and board.private:
-        permissions = boards_api.get_permissions(board, user)
-        return any(name in permissions
-                   for name in ['edit_board', 'move_cards'])
-    return not board.private
-
-
-def editable(board, user=None):
-    if not board:
-        return False
-    if not user:
-        return False
-    return 'edit_board' in boards_api.get_permissions(board, user)
-
-
 def get_lane(list_id, board):
     for lane in board['lanes']:
         if lane.list_id == list_id:
@@ -93,7 +75,10 @@ class PermissionsController(rest.RestController):
 
         """
         board = boards_api.get(board_id)
-        return boards_api.get_permissions(board, request.current_user_id)
+        if boards_api.visible(board, request.current_user_id):
+            return boards_api.get_permissions(board, request.current_user_id)
+        else:
+            raise exc.NotFound(_("Board %s not found") % board_id)
 
     @decorators.db_exceptions
     @secure(checks.authenticated)
@@ -106,7 +91,11 @@ class PermissionsController(rest.RestController):
         :param permission: The dict to use to create the permission.
 
         """
-        return boards_api.create_permission(board_id)
+        if boards_api.editable(boards_api.get(board_id),
+                               request.current_user_id):
+            return boards_api.create_permission(board_id)
+        else:
+            raise exc.NotFound(_("Board %s not found") % board_id)
 
     @decorators.db_exceptions
     @secure(checks.authenticated)
@@ -119,7 +108,11 @@ class PermissionsController(rest.RestController):
         :param permission: The new contents of the permission.
 
         """
-        return boards_api.update_permission(board_id, permission).codename
+        if boards_api.editable(boards_api.get(board_id),
+                               request.current_user_id):
+            return boards_api.update_permission(board_id, permission).codename
+        else:
+            raise exc.NotFound(_("Board %s not found") % board_id)
 
 
 class BoardsController(rest.RestController):
@@ -137,9 +130,10 @@ class BoardsController(rest.RestController):
         board = boards_api.get(id)
 
         user_id = request.current_user_id
-        if visible(board, user_id):
+        if boards_api.visible(board, user_id):
             board_model = wmodels.Board.from_db_model(board)
             board_model.resolve_lanes(board)
+            board_model.resolve_due_dates(board)
             board_model.resolve_permissions(board)
             return board_model
         else:
@@ -172,7 +166,8 @@ class BoardsController(rest.RestController):
         visible_boards = []
         user_id = request.current_user_id
         for board in boards:
-            if visible(board, user_id) and board.archived == archived:
+            if boards_api.visible(board, user_id) and\
+                    board.archived == archived:
                 board_model = wmodels.Board.from_db_model(board)
                 board_model.resolve_lanes(board, resolve_items=False)
                 board_model.resolve_permissions(board)
@@ -206,6 +201,10 @@ class BoardsController(rest.RestController):
         if not users:
             users = []
 
+        # We can't set due dates when creating boards at the moment.
+        if 'due_dates' in board_dict:
+            del board_dict['due_dates']
+
         created_board = boards_api.create(board_dict)
         for lane in lanes:
             boards_api.add_lane(created_board, lane.as_dict())
@@ -236,14 +235,14 @@ class BoardsController(rest.RestController):
 
         """
         user_id = request.current_user_id
-        if not editable(boards_api.get(id), user_id):
+        if not boards_api.editable(boards_api.get(id), user_id):
             raise exc.NotFound(_("Board %s not found") % id)
 
         board_dict = board.as_dict(omit_unset=True)
         update_lanes(board_dict, id)
         updated_board = boards_api.update(id, board_dict)
 
-        if visible(updated_board, user_id):
+        if boards_api.visible(updated_board, user_id):
             board_model = wmodels.Board.from_db_model(updated_board)
             board_model.resolve_lanes(updated_board)
             board_model.resolve_permissions(updated_board)
@@ -262,7 +261,7 @@ class BoardsController(rest.RestController):
         """
         board = boards_api.get(id)
         user_id = request.current_user_id
-        if not editable(board, user_id):
+        if not boards_api.editable(board, user_id):
             raise exc.NotFound(_("Board %s not found") % id)
 
         boards_api.update(id, {"archived": True})
