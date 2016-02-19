@@ -208,18 +208,32 @@ class DueDatesController(rest.RestController):
         :param due_date: The new due date within the request body.
 
         """
-        if not due_dates_api.editable(due_dates_api.get(id),
-                                      request.current_user_id):
+        if not due_dates_api.assignable(due_dates_api.get(id),
+                                        request.current_user_id):
             raise exc.NotFound(_("Due date %s not found") % id)
 
         due_date_dict = due_date.as_dict(omit_unset=True)
-        tasks = due_date_dict.pop('tasks')
-        db_tasks = []
-        for task in tasks:
-            db_tasks.append(tasks_api.task_get(task.id))
-        due_date_dict['tasks'] = db_tasks
+        editing = any(prop in due_date_dict
+                      for prop in ('name', 'date', 'private'))
+        if editing and not due_dates_api.editable(due_dates_api.get(id),
+                                                  request.current_user_id):
+            raise exc.NotFound(_("Due date %s not found") % id)
+
+        if 'tasks' in due_date_dict:
+            tasks = due_date_dict.pop('tasks')
+            db_tasks = []
+            for task in tasks:
+                db_tasks.append(tasks_api.task_get(task.id))
+            due_date_dict['tasks'] = db_tasks
+
+        board = None
+        if 'board_id' in due_date_dict:
+            board = boards_api.get(due_date_dict['board_id'])
 
         updated_due_date = due_dates_api.update(id, due_date_dict)
+
+        if board:
+            updated_due_date.boards.append(board)
 
         if due_dates_api.visible(updated_due_date, request.current_user_id):
             due_date_model = wmodels.DueDate.from_db_model(updated_due_date)
