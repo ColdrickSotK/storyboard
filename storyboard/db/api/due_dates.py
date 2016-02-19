@@ -170,6 +170,13 @@ def visible(due_date, user=None):
     return not due_date.private
 
 
+def assignable(due_date, user=None):
+    if not due_date or not user:
+        return False
+    permissions = get_permissions(due_date, user)
+    return any(name in permissions for name in ('edit_date', 'view_date'))
+
+
 def editable(due_date, user=None):
     if not due_date:
         return False
